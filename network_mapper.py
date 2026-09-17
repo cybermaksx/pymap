@@ -112,7 +112,7 @@ def syn_scan(target_ip,ports_list):
         packet = ip_header + tcp_header 
     
 
-    for port in ports_list:
+    
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_RAW , socket.IPPROTO_TCP) # SOCKRAW is important here because we don't want out system to touch this socket
             s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1) # Socket options : DON"T touch socket which we made
@@ -122,7 +122,7 @@ def syn_scan(target_ip,ports_list):
             tcp = response[0][20:40] # We are getting TCP header from response
             tcp_fields = struct.unpack("!HHLLHHHH", tcp) # Taking raw bytes back to the human readeble format 
             flags = tcp_fields[4] & 0x1FF # Now we only saving last 9 bytes which is very the flags that we need 
-            if flags == 0x012: # This is RST's bytes
+            if flags == 0x012: # SYN-ACK 
                 print(f"[*] {port} Port is open")
                 open_ports_found = True
                 
