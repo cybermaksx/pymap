@@ -25,29 +25,73 @@ it lives here now.
 The git history over there is ugly on purpose. Commits like "yesterday i had skill
 issues, but today i don't" are staying exactly where they are.
 
+## Layout
+
+The original was one 180-line file that parsed argv at import time and printed from
+inside the scan loop. That works right up until you want to test it, or output JSON,
+or reuse a header builder. So it got taken apart:
+
+```
+main.py              argv, dispatch, exit code. The only file that runs anything.
+report.py            turns results into text or JSON. Owns every print.
+net/
+  packet.py          bytes in, bytes out. Builds and parses IP/TCP headers.
+  utils.py           local IP lookup, port-spec parsing.
+scanners/
+  tcp.py             -sT   connect scan
+  syn.py             -sS   raw SYN scan
+  udp.py             -sU   UDP scan
+tests/               pytest, mostly against net/packet.py
+network_mapper.py    the original single file, kept for reference
+```
+
+Dependencies flow strictly downward — `main` knows everyone, scanners know `net`,
+and `net` knows nothing but the standard library. If something in `net/` ever needs
+to import from `scanners/`, the layering is wrong and I put the code in the wrong
+place.
+
+Two rules that make the rest work:
+
+**Scanners return data, they don't print.** Every scan hands back a list of
+dictionaries:
+
+```python
+{'port': 80, 'proto': 'tcp', 'state': 'open', 'reason': 'syn-ack'}
+```
+
+which is why `--json` costs one function instead of a rewrite, and why a test can
+check a result without parsing stdout.
+
+**Nothing happens at import time.** `import net.packet` opens no sockets, parses no
+argv, prints no ASCII art. Header building is pure functions over bytes, so the
+interesting half of this project is testable without root and without a network.
+
 ## State of things
+
+Honest status, not marketing:
 
 | Scan | Flag | Status |
 | --- | --- | --- |
 | TCP connect | `-sT` | Works. Slow and loud, like a full handshake should be. |
 | UDP | `-sU` | Works. Correctly separates open / open\|filtered / closed. |
-| SYN | `-sS` | Builds real packets by hand. Currently broken in ways I know about. |
+| SYN | `-sS` | Sends valid hand-built packets. Reads replies naively — see `BUGS.md`. |
 
-The SYN scanner assembles its own IP and TCP headers, computes the checksum over the
-pseudo-header, and sends it through a raw socket. It also sends the same packet to
-every port and doesn't check whether the reply belongs to the scan at all. Both of
-these are getting fixed. Leaving the bug documented instead of quietly patching it
-out, because that's the part I learned the most from.
+The SYN scanner assembles its own IP and TCP headers and computes the checksum over
+the pseudo-header, which is the part I actually wanted to learn. It also trusts
+whatever comes back on the raw socket without checking the reply belongs to the scan,
+and never reports a closed port. Both are written down rather than quietly patched
+out, because that's where the learning is.
 
-Requires root for `-sS` — raw sockets are not for everyone, and that's a feature of
-the kernel, not a bug in this.
+`-sS` needs root. Raw sockets are not for everyone, and that's the kernel doing its
+job, not a bug in this.
 
 ## Usage
 
 ```bash
-python network_mapper.py -sT -p 22,80,443 192.168.1.10
-python network_mapper.py -sU -p 53,123,161 192.168.1.10
-sudo python network_mapper.py -sS -p 1-1024 192.168.1.10
+python main.py -sT -p 22,80,443 192.168.1.10
+python main.py -sU -p 53,123,161 192.168.1.10
+sudo python main.py -sS -p 1-1024 192.168.1.10
+python main.py -sT -p 80,443 192.168.1.10 --json
 ```
 
 Python 3, standard library only. Nothing to install.

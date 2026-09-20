@@ -1,0 +1,9 @@
+# working notes stay local
+*.md
+!README.md
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
