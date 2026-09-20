@@ -1,4 +1,6 @@
 import socket
+import random
+
 
 from net.packet import build_ip_header, build_tcp_header, parse_tcp_header
 
@@ -6,7 +8,7 @@ from net.packet import build_ip_header, build_tcp_header, parse_tcp_header
 def syn_scan(target_ip, ports_list, my_ip):
     results = []
     for port in ports_list:
-        source_port = 1234 # our source port
+        source_port = random.randint(49152, 65535)  # our source port
 
         tcp_header = build_tcp_header(source_port, port, my_ip, target_ip)
         ip_header = build_ip_header(my_ip, target_ip)
