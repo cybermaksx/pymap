@@ -1,7 +1,7 @@
 # working notes stay local
 *.md
 !README.md
-
+!BUGS.md
 __pycache__/
 *.py[cod]
 .pytest_cache/

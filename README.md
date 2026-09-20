@@ -74,13 +74,22 @@ Honest status, not marketing:
 | --- | --- | --- |
 | TCP connect | `-sT` | Works. Slow and loud, like a full handshake should be. |
 | UDP | `-sU` | Works. Correctly separates open / open\|filtered / closed. |
-| SYN | `-sS` | Sends valid hand-built packets. Reads replies naively — see `BUGS.md`. |
+| SYN | `-sS` | Works. Hand-built packets, matched replies, all three states. |
 
 The SYN scanner assembles its own IP and TCP headers and computes the checksum over
-the pseudo-header, which is the part I actually wanted to learn. It also trusts
-whatever comes back on the raw socket without checking the reply belongs to the scan,
-and never reports a closed port. Both are written down rather than quietly patched
-out, because that's where the learning is.
+the pseudo-header, which is the part I actually wanted to learn. Then it has to do
+the job the kernel normally does for you: a raw socket hands up every TCP packet on
+the machine, so each probe carries a random ephemeral source port and every reply is
+checked against it before being believed. Anything else is discarded and it keeps
+listening until the port's deadline runs out.
+
+SYN-ACK means open, RST means closed, silence means something ate the packet and
+didn't admit it — that last one is `filtered`, and it's usually the most interesting
+of the three.
+
+What's left is written down in `BUGS.md` rather than quietly patched out, because
+that's where the learning is. The reply parser still assumes a 20-byte IP header,
+which is only true without IP options.
 
 `-sS` needs root. Raw sockets are not for everyone, and that's the kernel doing its
 job, not a bug in this.
