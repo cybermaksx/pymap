@@ -49,7 +49,7 @@ def build_ip_header(my_ip, target_ip):
     #Ip header fields
     ihl_version = 69  #Internet Header Length which is standart for each ip packet 4 because ipv 4 and 5 because we are using 5 blocks each 4 bytes which gives as 20 and 0100 0101  =  69
     tos = 0 #Type Of service or priority
-    total_length = 40  # 20 bytes ip + 20 bytes tcp
+    total_length = 20 + payload_len
     identification = 0 #ID of packet we need if it gets damaged however it will not because it's too small
     frag_offset = 0  # we will need this value only if our packet cuttet into pieces
     ttl = 64 # how many routers we can get trough

@@ -86,7 +86,7 @@ connection dangling, which the target sees and logs.
 Fix: `finally: s.close()`, the way `udp.py` already does it. Or `with` — sockets are
 context managers.
 
-## B6. `get_local_ip()` picks the wrong interface on VPN
+## B6. `get_local_ip()` picks the wrong interface on VPN  --Half fixed ... Need changes
 `net/utils.py:4`
 
 It asks the routing table how to reach `8.8.8.8`, which answers with your *default*
@@ -98,7 +98,7 @@ Fix: ask about the actual destination, not a fixed public IP —
 `get_local_ip(target_ip)`, connect to the target instead of `8.8.8.8`. Same trick, no
 packet sent, correct answer per target.
 
-## B7. Bare `except Exception` that prints
+## B7. Bare `except Exception` that prints --Fixed
 `scanners/syn.py:27-28`
 
 Catches everything — the timeout, a short packet, a `struct.error`, a genuine bug —
