@@ -16,4 +16,8 @@ def tcp_connect_scan(target_ip, ports_list):
         except ConnectionRefusedError:
             results.append({'port': port, 'proto': 'tcp', 'state': 'closed', 'reason': 'conn-refused'})
 
+        finally:
+            s.close()
+
+
     return results
