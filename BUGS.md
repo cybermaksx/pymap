@@ -1,6 +1,6 @@
 # BUGS & TODO
 
-Personal working file. Gitignored — this is the scratchpad, not the front page.
+Personal working file. Committed to the repo (`!BUGS.md` in `.gitignore`).
 
 Two lists: things that are broken, and things that don't exist yet. Ordered by how
 much they hurt, not by how hard they are.
@@ -15,6 +15,10 @@ much they hurt, not by how hard they are.
 **Fixed:** reply is now checked against `src_port`/`dst_port` before being
 believed, and a non-matching packet no longer ends the probe — the read loop keeps
 listening until the deadline.
+**Leftover:** only ports are compared, not the source IP — the commit message says
+the IP is checked, the code doesn't. Add `src_ip == target_ip` once
+`parse_ip_header` (C2) exists; `recvfrom()` already returns the sender address in
+`response[1][0]`, which works today.
 
 A raw `IPPROTO_TCP` socket receives **every** TCP packet the kernel hands up, not
 just replies to your probe. Browser traffic, SSH, an open Discord tab — all of it
@@ -33,6 +37,8 @@ This is also why B2 matters: you need a source port that identifies the probe.
 `scanners/syn.py:9`
 
 **Fixed:** `random.randint(49152, 65535)` per probe — the IANA ephemeral range.
+Good enough while probes are sequential. Once probes run in parallel (roadmap 3),
+random ports can collide — switch to `base + index` as described below.
 
 Hardcoded for all ports. Fine for a synchronous loop, fatal the moment probes are in
 flight simultaneously (roadmap item 3) — you lose the only field that tells you which
@@ -58,6 +64,10 @@ slice from there.
 **Fixed:** RST now maps to `closed`/`reset`, and `filtered`/`no-response` is the
 default the loop keeps when nothing comes back. Every port produces exactly one
 result now.
+**Leftover:** flags are compared with `==`. A bare RST (`0x04`) or a SYN-ACK with
+ECN bits falls through and is reported as `filtered`. Use bitmasks —
+`flags & SYN and flags & ACK`, `flags & RST` (see C3). Also `reason` is
+`'syn + ackn'` here but `'syn-ack'` in `tcp.py` — pick one.
 
 Only `0x012` (SYN-ACK) is handled. A closed port answers with RST (`0x014`) and the
 code silently drops it, so a closed port and a filtered port are indistinguishable in
@@ -67,13 +77,15 @@ Fix: add the RST branch → `state: 'closed'`, `reason: 'reset'`. On timeout →
 `state: 'filtered'`, `reason: 'no-response'`. That gives the same three states `-sU`
 already reports, which is the whole point of a SYN scan over a connect scan.
 
-## B5. Sockets are never closed —  FIXED (`syn.py` done, `tcp.py` open)
+## ~~B5. Sockets are never closed~~ — FIXED
 `scanners/syn.py:17`, `scanners/tcp.py:8`
 
 **Fixed in `syn.py`:** one raw socket for the whole scan, created above the loop,
 closed in `finally`.
-**Still open in `tcp.py`:** a socket per port, never closed, and an open port leaves
-a live connection dangling.
+**Fixed in `tcp.py`:** `finally: s.close()`.
+**Leftover:** `s` is created inside `try`, so if `socket.socket()` itself fails
+(e.g. fd limit hit), `finally` references an unbound/stale `s`. Create the socket
+before `try`, like `udp.py` does, or use `with socket.socket(...) as s:`.
 
 Both create a socket per port inside the loop and never close it. CPython's refcount
 cleans up when the variable is rebound on the next iteration, so it *mostly* doesn't
@@ -86,8 +98,17 @@ connection dangling, which the target sees and logs.
 Fix: `finally: s.close()`, the way `udp.py` already does it. Or `with` — sockets are
 context managers.
 
-## B6. `get_local_ip()` picks the wrong interface on VPN  --Half fixed ... Need changes
-`net/utils.py:4`
+## B6. `get_local_ip()` picks the wrong interface on VPN — FIXED in `utils.py`, BROKEN at call site
+`net/utils.py:4`, `main.py:49`
+
+**Fixed:** `get_local_ip(target_ip)` connects the UDP socket to the target, so the
+kernel picks the right interface (tun0 for HTB/THM). This is already the correct
+approach — the `TODO` about parsing `ip a` would be a step backwards (you'd have to
+reimplement the routing table lookup). Delete the TODO; the port number in
+`connect()` doesn't matter since UDP connect sends nothing.
+**Still broken:** `main.py:49` calls `get_local_ip()` with no argument →
+`TypeError: missing 1 required positional argument: 'target_ip'`. `-sS` crashes
+before sending a single packet. Fix: `get_local_ip(args.target)`.
 
 It asks the routing table how to reach `8.8.8.8`, which answers with your *default*
 route. Scan an HTB or THM box over `tun0` and the packets go out with your home LAN
@@ -98,8 +119,15 @@ Fix: ask about the actual destination, not a fixed public IP —
 `get_local_ip(target_ip)`, connect to the target instead of `8.8.8.8`. Same trick, no
 packet sent, correct answer per target.
 
-## B7. Bare `except Exception` that prints --Fixed
-`scanners/syn.py:27-28`
+## B7. Bare `except Exception` that prints — HALF FIXED
+`scanners/syn.py:65-66`
+
+**Fixed:** `socket.timeout` is now caught on its own inside the read loop and
+becomes `filtered`.
+**Still open:** the outer `except Exception as e: print(f"Error: {e}")` is still
+there. Any real bug (e.g. `struct.error` on a short packet in `parse_tcp_header`,
+or the B8 `NameError`) aborts the whole scan, prints one line, and returns partial
+results as if everything was fine. Remove it — `finally: s.close()` alone is enough.
 
 Catches everything — the timeout, a short packet, a `struct.error`, a genuine bug —
 flattens them all into one message, and prints from inside a scanner, which the whole
@@ -109,8 +137,15 @@ Fix: catch `socket.timeout` on its own and turn it into a `filtered` result. Let
 bugs crash rather than hide, or attach them to the result as a `reason`. Either way,
 no `print()` below `main.py`.
 
-## B8. `build_ip_header` hardcodes `total_length = 40`
-`net/packet.py:total_length`
+## B8. `build_ip_header` hardcodes `total_length = 40` — BROKEN BY THE FIX
+`net/packet.py:52`
+
+**Regression:** `total_length = 20 + payload_len`, but `payload_len` is not a
+parameter → `NameError: name 'payload_len' is not defined` on every call. SYN scan
+cannot build a single packet. Fix: `def build_ip_header(my_ip, target_ip, payload_len)`
+and in `syn.py` call `build_ip_header(my_ip, target_ip, len(tcp_header))`.
+(Side note: on Linux with `IP_HDRINCL` the kernel always fills Total Length itself —
+see `man 7 raw` — so the old value was harmless there. Still worth being correct.)
 
 Correct only for a bare 20-byte TCP header with no payload. Any UDP probe or any
 payload produces a header that lies about its own length.
@@ -126,8 +161,15 @@ truncated port number.
 
 Fix: covered by C1 — validate while you're in there.
 
-## B10. TCP connect scan lets `OSError` escape
-`scanners/tcp.py:13-17`
+## B10. TCP connect scan lets `OSError` escape — BROKEN BY THE FIX
+`scanners/tcp.py:20-21`
+
+**Regression:** `except OsError:` — typo, should be `OSError`. Python only evaluates
+that name when an exception reaches that clause, so it's silent until the first
+unreachable host, then: `NameError: name 'OsError' is not defined`. Reproduced with
+`tcp_connect_scan('255.255.255.255', [80])`. Order (after `ConnectionRefusedError`)
+is correct. Also `reason: 'conn-refused'` is wrong for this branch — use
+`'host-unreach'` or `errno.errorcode[e.errno]`.
 
 Catches `socket.timeout` and `ConnectionRefusedError`, but a dead route raises
 `OSError: [Errno 113] No route to host` and kills the whole scan mid-run, losing
@@ -135,6 +177,21 @@ every result gathered so far.
 
 Fix: catch `OSError` last and record `state: 'unreachable'`. Order matters —
 `ConnectionRefusedError` is a subclass of `OSError`, so it has to come first.
+
+## B11. `python main.py` doesn't start at all
+`main.py:9`
+
+`from report import print_banner, print_results, print_json` →
+`ImportError: cannot import name 'print_results'`. Every scan mode is dead until C4
+is written. Also `print_banner()` runs before `parse_ports()` — so once imports work,
+a bad `-p` prints the banner and then a traceback.
+
+## B12. SYN scan needs an IP, not a hostname
+`scanners/syn.py:20`, `net/packet.py:38`
+
+`socket.inet_aton("scanme.nmap.org")` → `OSError: illegal IP address string`.
+`-sT`/`-sU` accept hostnames, `-sS` doesn't. Fix: resolve once in `main.py` with
+`socket.gethostbyname(args.target)` and pass the IP to every scanner.
 
 ## Not bugs, but worth knowing
 
