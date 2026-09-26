@@ -67,7 +67,7 @@ Fix: add the RST branch → `state: 'closed'`, `reason: 'reset'`. On timeout →
 `state: 'filtered'`, `reason: 'no-response'`. That gives the same three states `-sU`
 already reports, which is the whole point of a SYN scan over a connect scan.
 
-## B5. Sockets are never closed — HALF FIXED (`syn.py` done, `tcp.py` open)
+## B5. Sockets are never closed —  FIXED (`syn.py` done, `tcp.py` open)
 `scanners/syn.py:17`, `scanners/tcp.py:8`
 
 **Fixed in `syn.py`:** one raw socket for the whole scan, created above the loop,

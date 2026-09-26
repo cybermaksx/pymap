@@ -1,9 +1,9 @@
 import socket
 
 
-def get_local_ip():
+def get_local_ip(target_ip):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("8.8.8.8", 80))
+    s.connect((target_ip, 22)) #Poor realisation # TODO change this to the output of the ip -a command
     my_ip = s.getsockname()[0]
     s.close()
     return my_ip
