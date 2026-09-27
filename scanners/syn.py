@@ -62,8 +62,7 @@ def syn_scan(target_ip, ports_list, my_ip, timeout=3):
             
                 
 
-    except Exception as e:
-        print(f"Error: {e}")
+    
 
 
     finally:
